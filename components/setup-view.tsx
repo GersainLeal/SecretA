@@ -39,6 +39,7 @@ export function SetupView({
   const [savingConfig, setSavingConfig] = useState(false)
   const [loadConfigId, setLoadConfigId] = useState("")
   const [kvEnabled, setKvEnabled] = useState<boolean | null>(null)
+  const [showKvCta, setShowKvCta] = useState(false)
   const [localConfigs, setLocalConfigs] = useState<
     { id: string; name?: string; createdAt: number; houses: House[]; people: Person[] }[]
   >([])
@@ -160,15 +161,16 @@ export function SetupView({
       // Comprobar si KV está configurado (necesario en Vercel)
       try {
         const kv = await fetch("/api/kv-status").then((r) => r.json() as Promise<{ enabled: boolean }>)
-        const hostname = typeof window !== "undefined" ? window.location.hostname : ""
-        const isLocalHost = hostname === "localhost" || hostname === "127.0.0.1"
-        if (!kv.enabled && !isLocalHost) {
+        const isDev = process.env.NODE_ENV === "development"
+        if (!kv.enabled && !isDev) {
           setError(
             "No hay base de datos configurada para la sesión. En Vercel debes configurar Vercel KV (KV_REST_API_URL/KV_REST_API_TOKEN).",
           )
+          setShowKvCta(true)
           return
         }
-        if (!kv.enabled && isLocalHost) {
+        setShowKvCta(false)
+        if (!kv.enabled && isDev) {
           toast({
             title: "Enlace local (sin persistencia)",
             description: "Funciona en tu máquina, pero en Vercel necesitas configurar KV.",
@@ -259,7 +261,10 @@ export function SetupView({
         setIsDrawComplete(false)
         toast({ title: "Configuración cargada", description: data.name || id })
       } else {
-        const entry = readLocalConfigs().find((c) => c.id === id.trim())
+        const entry = readLocalConfigs().find(
+          (c: { id: string; name?: string; createdAt: number; houses: House[]; people: Person[] }) =>
+            c.id === id.trim(),
+        )
         if (!entry) throw new Error("No se encontró localmente")
         setHouses(entry.houses)
         setPeople(entry.people)
@@ -290,17 +295,17 @@ export function SetupView({
           <Input
             placeholder="Nombre opcional (ej: Navidad 2025)"
             value={configName}
-            onChange={(e) => setConfigName(e.target.value)}
+            onChange={(e: React.ChangeEvent<HTMLInputElement>) => setConfigName(e.target.value)}
           />
           <Button onClick={saveConfiguration} disabled={savingConfig || people.length < 2} className="bg-primary">
             <Save className="mr-2 h-4 w-4" /> Guardar configuración
           </Button>
         </div>
 
-        <div className="mt-3 grid gap-2 md:grid-cols-[1fr_auto]"><Input
+    <div className="mt-3 grid gap-2 md:grid-cols-[1fr_auto]"><Input
             placeholder="ID de configuración"
             value={loadConfigId}
-            onChange={(e) => setLoadConfigId(e.target.value)}
+      onChange={(e: React.ChangeEvent<HTMLInputElement>) => setLoadConfigId(e.target.value)}
           />
           <Button
             onClick={() => loadConfiguration(loadConfigId)}
@@ -315,7 +320,8 @@ export function SetupView({
           <div className="mt-3 text-xs text-muted-foreground">
             <div className="mb-1">Guardadas localmente:</div>
             <div className="flex flex-wrap gap-2">
-              {localConfigs.slice(0, 6).map((c) => (
+              {localConfigs.slice(0, 6).map(
+                (c: { id: string; name?: string; createdAt: number; houses: House[]; people: Person[] }) => (
                 <button
                   key={c.id}
                   onClick={() => {
@@ -327,7 +333,8 @@ export function SetupView({
                 >
                   {c.name || new Date(c.createdAt).toLocaleString()}
                 </button>
-              ))}
+                ),
+              )}
             </div>
           </div>
         )}
@@ -344,8 +351,8 @@ export function SetupView({
           <Input
             placeholder="Nombre de la casa (ej: Casa García)"
             value={newHouseName}
-            onChange={(e) => setNewHouseName(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && addHouse()}
+            onChange={(e: React.ChangeEvent<HTMLInputElement>) => setNewHouseName(e.target.value)}
+            onKeyDown={(e: React.KeyboardEvent<HTMLInputElement>) => e.key === "Enter" && addHouse()}
             className="flex-1"
           />
           <Button onClick={addHouse} className="bg-primary hover:bg-primary/90">
@@ -384,13 +391,13 @@ export function SetupView({
           <Input
             placeholder="Nombre de la persona"
             value={newPersonName}
-            onChange={(e) => setNewPersonName(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && addPerson()}
+            onChange={(e: React.ChangeEvent<HTMLInputElement>) => setNewPersonName(e.target.value)}
+            onKeyDown={(e: React.KeyboardEvent<HTMLInputElement>) => e.key === "Enter" && addPerson()}
             className="flex-1"
           />
           <select
             value={selectedHouseId}
-            onChange={(e) => setSelectedHouseId(e.target.value)}
+            onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setSelectedHouseId(e.target.value)}
             className="rounded-lg border border-input bg-background px-3 py-2 text-foreground"
             disabled={houses.length === 0}
           >
@@ -438,9 +445,31 @@ export function SetupView({
       {/* Draw & Share */}
       <Card className="border-border bg-card p-6">
         {error && (
-          <div className="mb-4 flex items-center gap-2 rounded-lg bg-destructive/10 p-3 text-destructive">
-            <AlertCircle className="h-5 w-5" />
-            <span>{error}</span>
+          <div className="mb-4 rounded-lg border border-destructive/30 bg-destructive/10 p-3">
+            <div className="flex items-start gap-2 text-destructive">
+              <AlertCircle className="mt-0.5 h-5 w-5" />
+              <span className="flex-1">{error}</span>
+            </div>
+            {showKvCta && (
+              <div className="mt-3 flex flex-wrap gap-2">
+                <a
+                  href="https://vercel.com/docs/storage/vercel-kv"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center rounded-md border border-border bg-background px-3 py-1 text-sm hover:bg-muted"
+                >
+                  Abrir guía de Vercel KV
+                </a>
+                <a
+                  href="https://vercel.com/storage/kv"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center rounded-md border border-border bg-background px-3 py-1 text-sm hover:bg-muted"
+                >
+                  Abrir Storage en Vercel
+                </a>
+              </div>
+            )}
           </div>
         )}
 
