@@ -1,12 +1,26 @@
 import { randomBytes } from "crypto"
-// Use Vercel KV (free tier) if environment variables are present. Fallback to in-memory in dev.
+// Storage adapters: prefer Vercel KV; if not available but REDIS_URL exists, use node-redis; else memory.
 let kv: any = null
+let redisClient: any = null
 try {
   // Lazy import so local dev without the package still works until installed
   // eslint-disable-next-line @typescript-eslint/no-var-requires
   kv = require("@vercel/kv").kv
 } catch {
   kv = null
+}
+
+// Optional: Vercel Redis (TCP) via REDIS_URL
+if (!kv && process.env.REDIS_URL) {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { createClient } = require("redis")
+    redisClient = createClient({ url: process.env.REDIS_URL })
+    // Avoid crashing on unhandled connection errors; we'll surface via isKvConfigured/kv-status
+    redisClient.on("error", () => {})
+  } catch {
+    redisClient = null
+  }
 }
 
 export type Person = {
@@ -55,7 +69,40 @@ export function isKvConfigured(): boolean {
   const hasUpstashPair = Boolean(process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN)
   // Some older setups expose a single KV_URL that encodes creds
   const hasKvUrl = Boolean(process.env.KV_URL)
-  return Boolean(kv && (hasVercelKvPair || hasUpstashPair || hasKvUrl))
+  const hasVercelKv = Boolean(kv && (hasVercelKvPair || hasUpstashPair || hasKvUrl))
+  const hasRedis = Boolean(redisClient && process.env.REDIS_URL)
+  return hasVercelKv || hasRedis
+}
+
+export function currentStoreEngine(): "vercel-kv" | "redis" | "memory" {
+  if (kv && isKvConfigured()) return "vercel-kv"
+  if (redisClient && process.env.REDIS_URL) return "redis"
+  return "memory"
+}
+
+async function kvSet(key: string, value: unknown): Promise<void> {
+  if (kv && isKvConfigured()) {
+    await kv.set(key, value)
+    return
+  }
+  if (redisClient && process.env.REDIS_URL) {
+    if (!redisClient.isOpen) await redisClient.connect()
+    await redisClient.set(key, JSON.stringify(value))
+    return
+  }
+  // memory handled by callers
+}
+
+async function kvGet<T>(key: string): Promise<T | null> {
+  if (kv && isKvConfigured()) {
+    return ((await kv.get(key)) as T | null) ?? null
+  }
+  if (redisClient && process.env.REDIS_URL) {
+    if (!redisClient.isOpen) await redisClient.connect()
+    const raw = (await redisClient.get(key)) as string | null
+    return raw ? (JSON.parse(raw) as T) : null
+  }
+  return null
 }
 
 const kvKey = (id: string) => `session:${id}`
@@ -81,7 +128,7 @@ export async function createSession(input: { houses: House[]; people: Omit<Perso
     createdAt: Date.now(),
   }
   if (isKvConfigured()) {
-    await kv.set(kvKey(id), session)
+    await kvSet(kvKey(id), session)
   } else {
     sessions.set(id, session)
   }
@@ -99,7 +146,7 @@ export async function createConfig(input: { name?: string; houses: House[]; peop
     createdAt: Date.now(),
   }
   if (isKvConfigured()) {
-    await kv.set(kvConfigKey(id), cfg)
+    await kvSet(kvConfigKey(id), cfg)
   } else {
     // keep a tiny in-memory cache for local dev
     const g = globalThis as unknown as { __amigoConfigs?: Map<string, Config> }
@@ -111,7 +158,7 @@ export async function createConfig(input: { name?: string; houses: House[]; peop
 
 export async function getConfig(id: string): Promise<Config | undefined> {
   if (isKvConfigured()) {
-    const c = (await kv.get(kvConfigKey(id))) as Config | null
+    const c = (await kvGet<Config>(kvConfigKey(id))) as Config | null
     return c ?? undefined
   }
   const g = globalThis as unknown as { __amigoConfigs?: Map<string, Config> }
@@ -120,7 +167,7 @@ export async function getConfig(id: string): Promise<Config | undefined> {
 
 export async function getSession(id: string): Promise<Session | undefined> {
   if (isKvConfigured()) {
-    const s = (await kv.get(kvKey(id))) as Session | null
+    const s = await kvGet<Session>(kvKey(id))
     return s ?? undefined
   }
   return sessions.get(id)
@@ -128,7 +175,7 @@ export async function getSession(id: string): Promise<Session | undefined> {
 
 export async function setSession(session: Session): Promise<void> {
   if (isKvConfigured()) {
-    await kv.set(kvKey(session.id), session)
+    await kvSet(kvKey(session.id), session)
   } else {
     sessions.set(session.id, session)
   }
