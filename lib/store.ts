@@ -10,8 +10,8 @@ try {
   kv = null
 }
 
-// Optional: Vercel Redis (TCP) via REDIS_URL
-if (!kv && process.env.REDIS_URL) {
+// Optional: Vercel/Upstash Redis (TCP) via REDIS_URL
+if (process.env.REDIS_URL) {
   try {
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     const { createClient } = require("redis")
@@ -63,29 +63,35 @@ const globalAny = globalThis as unknown as { __amigoSessions?: Map<string, Sessi
 const sessions: Map<string, Session> = globalAny.__amigoSessions ?? new Map<string, Session>()
 globalAny.__amigoSessions = sessions
 
-export function isKvConfigured(): boolean {
-  // Support both Vercel KV and Upstash Redis REST credentials
+function hasKvCreds(): boolean {
   const hasVercelKvPair = Boolean(process.env.KV_REST_API_URL && process.env.KV_REST_API_TOKEN)
   const hasUpstashPair = Boolean(process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN)
-  // Some older setups expose a single KV_URL that encodes creds
   const hasKvUrl = Boolean(process.env.KV_URL)
-  const hasVercelKv = Boolean(kv && (hasVercelKvPair || hasUpstashPair || hasKvUrl))
-  const hasRedis = Boolean(redisClient && process.env.REDIS_URL)
-  return hasVercelKv || hasRedis
+  return hasVercelKvPair || hasUpstashPair || hasKvUrl
+}
+
+function hasRedisCreds(): boolean {
+  return Boolean(process.env.REDIS_URL)
+}
+
+export function isKvConfigured(): boolean {
+  const vercelKvReady = Boolean(kv && hasKvCreds())
+  const redisReady = Boolean(redisClient && hasRedisCreds())
+  return vercelKvReady || redisReady
 }
 
 export function currentStoreEngine(): "vercel-kv" | "redis" | "memory" {
-  if (kv && isKvConfigured()) return "vercel-kv"
-  if (redisClient && process.env.REDIS_URL) return "redis"
+  if (redisClient && hasRedisCreds()) return "redis"
+  if (kv && hasKvCreds()) return "vercel-kv"
   return "memory"
 }
 
 async function kvSet(key: string, value: unknown): Promise<void> {
-  if (kv && isKvConfigured()) {
+  if (kv && hasKvCreds()) {
     await kv.set(key, value)
     return
   }
-  if (redisClient && process.env.REDIS_URL) {
+  if (redisClient && hasRedisCreds()) {
     if (!redisClient.isOpen) await redisClient.connect()
     await redisClient.set(key, JSON.stringify(value))
     return
@@ -94,10 +100,10 @@ async function kvSet(key: string, value: unknown): Promise<void> {
 }
 
 async function kvGet<T>(key: string): Promise<T | null> {
-  if (kv && isKvConfigured()) {
+  if (kv && hasKvCreds()) {
     return ((await kv.get(key)) as T | null) ?? null
   }
-  if (redisClient && process.env.REDIS_URL) {
+  if (redisClient && hasRedisCreds()) {
     if (!redisClient.isOpen) await redisClient.connect()
     const raw = (await redisClient.get(key)) as string | null
     return raw ? (JSON.parse(raw) as T) : null

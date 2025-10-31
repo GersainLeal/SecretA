@@ -160,11 +160,13 @@ export function SetupView({
       setCreatingLink(true)
       // Comprobar si KV está configurado (necesario en Vercel)
       try {
-        const kv = await fetch("/api/kv-status").then((r) => r.json() as Promise<{ enabled: boolean }>)
+        const kv = await fetch("/api/kv-status").then(
+          (r) => r.json() as Promise<{ enabled: boolean; engine?: string }>,
+        )
         const isDev = process.env.NODE_ENV === "development"
         if (!kv.enabled && !isDev) {
           setError(
-            "No hay base de datos configurada para la sesión. En Vercel debes configurar Vercel KV (KV_REST_API_URL/KV_REST_API_TOKEN) desde el Marketplace.",
+            "No hay base de datos configurada para la sesión. En Vercel debes configurar almacenamiento: Vercel KV (KV_REST_API_URL/KV_REST_API_TOKEN) o Redis (REDIS_URL).",
           )
           setShowKvCta(true)
           return
