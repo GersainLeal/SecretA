@@ -164,7 +164,7 @@ export function SetupView({
         const isDev = process.env.NODE_ENV === "development"
         if (!kv.enabled && !isDev) {
           setError(
-            "No hay base de datos configurada para la sesión. En Vercel debes configurar Vercel KV (KV_REST_API_URL/KV_REST_API_TOKEN).",
+            "No hay base de datos configurada para la sesión. En Vercel debes configurar Vercel KV (KV_REST_API_URL/KV_REST_API_TOKEN) desde el Marketplace.",
           )
           setShowKvCta(true)
           return
@@ -461,12 +461,12 @@ export function SetupView({
                   Abrir guía de Vercel KV
                 </a>
                 <a
-                  href="https://vercel.com/storage/kv"
+                  href="https://vercel.com/integrations/kv"
                   target="_blank"
                   rel="noreferrer"
                   className="inline-flex items-center rounded-md border border-border bg-background px-3 py-1 text-sm hover:bg-muted"
                 >
-                  Abrir Storage en Vercel
+                  Abrir Marketplace: Vercel KV
                 </a>
               </div>
             )}
