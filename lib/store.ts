@@ -50,10 +50,12 @@ const sessions: Map<string, Session> = globalAny.__amigoSessions ?? new Map<stri
 globalAny.__amigoSessions = sessions
 
 export function isKvConfigured(): boolean {
-  // Vercel KV uses KV_REST_API_URL/KV_REST_API_TOKEN or KV_URL; Upstash naming also supported
-  return Boolean(
-    kv && (process.env.KV_REST_API_URL || process.env.KV_URL || process.env.UPSTASH_REDIS_REST_URL),
-  )
+  // Support both Vercel KV and Upstash Redis REST credentials
+  const hasVercelKvPair = Boolean(process.env.KV_REST_API_URL && process.env.KV_REST_API_TOKEN)
+  const hasUpstashPair = Boolean(process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN)
+  // Some older setups expose a single KV_URL that encodes creds
+  const hasKvUrl = Boolean(process.env.KV_URL)
+  return Boolean(kv && (hasVercelKvPair || hasUpstashPair || hasKvUrl))
 }
 
 const kvKey = (id: string) => `session:${id}`
